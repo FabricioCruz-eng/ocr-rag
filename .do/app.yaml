@@ -1,0 +1,18 @@
+name: ocr-contract-analyzer
+services:
+- name: web
+  source_dir: /
+  github:
+    repo: SEU_USUARIO/ocr-contract-analyzer
+    branch: main
+  run_command: streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true
+  environment_slug: python
+  instance_count: 1
+  instance_size_slug: basic-xxs
+  envs:
+  - key: OPENAI_API_KEY
+    scope: RUN_TIME
+    type: SECRET
+  - key: PYTHONUNBUFFERED
+    value: "1"
+    scope: RUN_TIME

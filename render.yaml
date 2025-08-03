@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: ocr-contract-analyzer
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: PYTHONUNBUFFERED
+        value: "1"
+    disk:
+      name: data
+      mountPath: /opt/render/project/src/chroma_db
+      sizeGB: 1

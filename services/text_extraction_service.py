@@ -15,8 +15,50 @@ import fitz  # PyMuPDF
 from PIL import Image
 import pytesseract
 
-# Configure Tesseract path for Windows
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+# Configure Tesseract path based on environment
+import platform
+import subprocess
+
+def configure_tesseract():
+    """Configure Tesseract path based on environment"""
+    system = platform.system().lower()
+    
+    if system == "windows":
+        # Windows local development
+        tesseract_path = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+        if os.path.exists(tesseract_path):
+            pytesseract.pytesseract.tesseract_cmd = tesseract_path
+            return True
+    elif system == "linux":
+        # Linux production (Railway, Heroku, etc.)
+        try:
+            # Try common Linux paths for Tesseract
+            common_paths = [
+                '/usr/bin/tesseract',
+                '/usr/local/bin/tesseract',
+                'tesseract'  # In PATH
+            ]
+            
+            for path in common_paths:
+                try:
+                    if path == 'tesseract':
+                        result = subprocess.run(['which', 'tesseract'], capture_output=True, text=True, timeout=5)
+                        if result.returncode == 0:
+                            pytesseract.pytesseract.tesseract_cmd = 'tesseract'
+                            return True
+                    else:
+                        if os.path.exists(path):
+                            pytesseract.pytesseract.tesseract_cmd = path
+                            return True
+                except:
+                    continue
+        except:
+            pass
+    
+    return False
+
+# Configure Tesseract on import
+TESSERACT_AVAILABLE = configure_tesseract()
 
 from services.base_service import BaseService
 from models.document import Document, DocumentSection, DocumentStatus
@@ -204,60 +246,93 @@ class TextExtractionService(BaseService):
                 self.log_warning("Tesseract OCR não está disponível. Instale para extrair texto de imagens.")
                 return "[IMAGEM DETECTADA - INSTALE TESSERACT PARA EXTRAIR TEXTO]"
             
-            # Configure Tesseract for Portuguese
-            custom_config = r'--oem 3 --psm 6 -l por'
-            
             # Preprocess image for better OCR
             processed_image = self._preprocess_image_for_ocr(image)
             
-            # Extract text using Tesseract
-            text = pytesseract.image_to_string(processed_image, config=custom_config)
+            # Try multiple OCR configurations for better results
+            configs = [
+                ('Portuguese + PSM 6', r'--oem 3 --psm 6 -l por'),
+                ('Portuguese + PSM 3', r'--oem 3 --psm 3 -l por'),
+                ('English + PSM 6', r'--oem 3 --psm 6'),
+                ('Default', r'--psm 6')
+            ]
             
-            return text.strip()
+            best_text = ""
+            best_confidence = 0
+            
+            for config_name, config in configs:
+                try:
+                    text = pytesseract.image_to_string(processed_image, config=config)
+                    text = text.strip()
+                    
+                    if text and len(text) > len(best_text):
+                        best_text = text
+                        self.log_info(f"OCR success with {config_name}: {len(text)} chars")
+                        break  # Use first successful result
+                        
+                except Exception as e:
+                    self.log_warning(f"OCR failed with {config_name}: {str(e)}")
+                    continue
+            
+            if best_text:
+                return best_text
+            else:
+                self.log_warning("All OCR configurations failed")
+                return "[IMAGEM DETECTADA - OCR FALHOU]"
             
         except Exception as e:
-            self.log_warning(f"OCR with Portuguese failed: {str(e)}")
-            # Try without Portuguese language if it fails
-            try:
-                text = pytesseract.image_to_string(image, config=r'--oem 3 --psm 6')
-                return text.strip()
-            except Exception as e2:
-                self.log_warning(f"OCR completely failed: {str(e2)}")
-                return "[IMAGEM DETECTADA - OCR FALHOU]"
+            self.log_warning(f"OCR completely failed: {str(e)}")
+            return "[IMAGEM DETECTADA - OCR FALHOU]"
     
     def _is_tesseract_available(self) -> bool:
         """Check if Tesseract is available"""
+        global TESSERACT_AVAILABLE
+        
+        if not TESSERACT_AVAILABLE:
+            return False
+            
         try:
-            # Try with configured path first
-            tesseract_path = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-            if os.path.exists(tesseract_path):
-                import subprocess
-                result = subprocess.run([tesseract_path, '--version'], 
+            # Test if Tesseract actually works
+            import subprocess
+            cmd = pytesseract.pytesseract.tesseract_cmd
+            if isinstance(cmd, str):
+                result = subprocess.run([cmd, '--version'], 
                                       capture_output=True, text=True, timeout=5)
                 return result.returncode == 0
-            
-            # Fallback to PATH
-            import subprocess
-            result = subprocess.run(['tesseract', '--version'], 
-                                  capture_output=True, text=True, timeout=5)
-            return result.returncode == 0
+            return False
         except:
             return False
     
     def _preprocess_image_for_ocr(self, image: Image.Image) -> Image.Image:
         """Preprocess image to improve OCR accuracy"""
         try:
-            # Convert to grayscale
+            # Convert to RGB first if needed, then to grayscale
+            if image.mode not in ['RGB', 'L']:
+                image = image.convert('RGB')
+            
+            # Convert to grayscale for better OCR
             if image.mode != 'L':
                 image = image.convert('L')
             
             # Resize if too small (OCR works better on larger images)
             width, height = image.size
-            if width < 300 or height < 300:
-                scale_factor = max(300 / width, 300 / height)
+            min_size = 600  # Increased minimum size for better OCR
+            
+            if width < min_size or height < min_size:
+                scale_factor = max(min_size / width, min_size / height)
                 new_width = int(width * scale_factor)
                 new_height = int(height * scale_factor)
                 image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                self.log_info(f"Image resized from {width}x{height} to {new_width}x{new_height}")
+            
+            # Apply contrast enhancement
+            from PIL import ImageEnhance
+            enhancer = ImageEnhance.Contrast(image)
+            image = enhancer.enhance(1.2)  # Slight contrast boost
+            
+            # Apply sharpening
+            enhancer = ImageEnhance.Sharpness(image)
+            image = enhancer.enhance(1.1)  # Slight sharpening
             
             return image
             
