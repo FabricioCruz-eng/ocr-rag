@@ -30,11 +30,11 @@ def configure_tesseract():
             pytesseract.pytesseract.tesseract_cmd = tesseract_path
             return True
     elif system == "linux":
-        # Linux production (Railway, Heroku, etc.)
+        # Linux production (Railway Docker, Heroku, etc.)
         try:
             # Try common Linux paths for Tesseract
             common_paths = [
-                '/usr/bin/tesseract',
+                '/usr/bin/tesseract',  # Standard Ubuntu/Debian path
                 '/usr/local/bin/tesseract',
                 'tesseract'  # In PATH
             ]
@@ -42,17 +42,23 @@ def configure_tesseract():
             for path in common_paths:
                 try:
                     if path == 'tesseract':
-                        result = subprocess.run(['which', 'tesseract'], capture_output=True, text=True, timeout=5)
+                        # Test if tesseract is in PATH
+                        result = subprocess.run(['tesseract', '--version'], 
+                                              capture_output=True, text=True, timeout=5)
                         if result.returncode == 0:
                             pytesseract.pytesseract.tesseract_cmd = 'tesseract'
                             return True
                     else:
                         if os.path.exists(path):
-                            pytesseract.pytesseract.tesseract_cmd = path
-                            return True
-                except:
+                            # Test if the path works
+                            result = subprocess.run([path, '--version'], 
+                                                  capture_output=True, text=True, timeout=5)
+                            if result.returncode == 0:
+                                pytesseract.pytesseract.tesseract_cmd = path
+                                return True
+                except Exception as e:
                     continue
-        except:
+        except Exception as e:
             pass
     
     return False
