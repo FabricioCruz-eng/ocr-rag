@@ -9,7 +9,7 @@ from models.document import Document
 
 # Configure page
 st.set_page_config(
-    page_title="Analisador de Contratos LLM RAG",
+    page_title=" 📄 OCR Analisador de Contratos LLM RAG",
     page_icon="📄",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -23,7 +23,7 @@ def get_document_service():
 def main():
     """Main application function"""
     st.markdown("""
-    <h1 style="font-size: 30px; color:#e9775d;">♾️ Analisador de Contratos Claro</h1>
+    <h1 style="font-size: 30px; color:#e9775d;">♾️ OCR Analisador de Contratos Claro</h1>
 """,unsafe_allow_html=True)
     st.markdown("Sistema de análise de contratos utilizando LLM - Large Language Models e RAG - Retrieval-Augmented Generation")
     
